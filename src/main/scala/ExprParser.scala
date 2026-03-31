@@ -5,30 +5,50 @@ import Expr.*
 
 trait ExprParser[Result] extends JavaTokenParsers:
 
-  /**
-   * Enable missing typesafe equality for `~`.
-   * TODO remove once the combinator parser library provides this.
-   */
   given [A, B](using CanEqual[A, A], CanEqual[B, B]): CanEqual[A ~ B, A ~ B] = CanEqual.derived
 
-  /** expr ::= term { { "+" | "-" } term }* */
-  def expr: Parser[Result] = term ~! opt(("+" | "-") ~ term) ^^ onExpr
+  def repl: Parser[Result] = rep(statement) ^^ onBlock
 
-  /** term ::= factor { { "*" | "/" | "%" } factor }* */
-  def term: Parser[Result] = factor ~! opt(("*" | "/" | "%") ~ factor) ^^ onTerm
+  // Safety fix: Put specific keywords (conditional/loop) before generic ones (assignment/expr)
+  def statement: Parser[Result] = 
+    conditional | loop | assignment | block | expr <~ ";"
 
-  /** factor ::= wholeNumber | "+" factor | "-" factor | "(" expr ")" */
+  def assignment: Parser[Result] = 
+    ident ~ ("=" ~> expr) <~ ";" ^^ onAssign
+
+  def conditional: Parser[Result] = 
+    "if" ~> "(" ~> expr ~ (")" ~> block) ~ opt("else" ~> block) ^^ onConditional
+
+  def loop: Parser[Result] = 
+    "while" ~> "(" ~> expr ~ (")" ~> block) ^^ onLoop
+
+  def block: Parser[Result] = 
+    "{" ~> rep(statement) <~ "}" ^^ onBlock
+
+  // --- UPGRADED TO rep() ---
+  def expr: Parser[Result] = term ~ rep(("+" | "-") ~ term) ^^ onExpr
+  def term: Parser[Result] = factor ~ rep(("*" | "/" | "%") ~ factor) ^^ onTerm
+
   def factor: Parser[Result] = 
-    wholeNumber ^^ onNumber
+    ident ^^ onIdent
+    | wholeNumber ^^ onNumber
     | "+" ~> factor ^^ onPlusFactor
     | "-" ~> factor ^^ onMinusFactor
     | "(" ~> expr <~ ")" ^^ onParenExpr
 
-  def onExpr: Result ~ Option[String ~ Result] => Result
-  def onTerm: Result ~ Option[String ~ Result] => Result
+  // --- UPDATED SIGNATURES TO HANDLE LISTS ---
+  def onExpr: Result ~ List[String ~ Result] => Result
+  def onTerm: Result ~ List[String ~ Result] => Result
+  
   def onNumber: String => Result
   def onPlusFactor: Result => Result
   def onMinusFactor: Result => Result
   def onParenExpr: Result => Result
-  
+  def onIdent: String => Result
+  def onAssign: String ~ Result => Result
+  def onConditional: Result ~ Result ~ Option[Result] => Result
+  def onLoop: Result ~ Result => Result
+  def onBlock: List[Result] => Result
+
 end ExprParser
+

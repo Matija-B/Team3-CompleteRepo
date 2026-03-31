@@ -1,45 +1,106 @@
 package edu.luc.cs.laufer.cs371.expressions
 
 import util.Try
-
 import Expr.*
+import org.json4s.JsonAST.JValue
+import org.json4s.JsonDSL.*
 
 object behaviors:
 
+  // --- 1. EVALUATION (Dummy cases added to prevent compiler warnings) ---
   private def evaluateR(e: Expr): Int = e match
     case Constant(c) => c
     case UMinus(r)   => -evaluateR(r)
-    case Plus(l, r)  => evaluateR(l) + evaluateR(r) // Seq(l, r).map(evaluateR).sum
-    case Minus(l, r) => evaluateR(l) - evaluateR(r) // Seq(l, r).map(evaluateR).foldLeft(0)(_ - _)
-    case Times(l, r) => evaluateR(l) * evaluateR(r) // Seq(l, r).map(evaluateR).product
+    case Plus(l, r)  => evaluateR(l) + evaluateR(r)
+    case Minus(l, r) => evaluateR(l) - evaluateR(r)
+    case Times(l, r) => evaluateR(l) * evaluateR(r)
     case Div(l, r)   => evaluateR(l) / evaluateR(r)
     case Mod(l, r)   => evaluateR(l) % evaluateR(r)
+    // Project 3b will handle these:
+    case _ => throw new NotImplementedError("Evaluation not implemented for imperative constructs yet")
 
   def evaluate(e: Expr): Try[Int] = Try(evaluateR(e))
 
+  // --- 2. AST METRICS ---
   def size(e: Expr): Int = e match
-    case Constant(c) => 1
-    case UMinus(r)   => 1 + size(r)
-    case Plus(l, r)  => 1 + size(l) + size(r) // 1 + Seq(l, r).map(size).sum
-    case Minus(l, r) => 1 + size(l) + size(r)
-    case Times(l, r) => 1 + size(l) + size(r)
-    case Div(l, r)   => 1 + size(l) + size(r)
-    case Mod(l, r)   => 1 + size(l) + size(r)
+    case Constant(c)   => 1
+    case Variable(_)   => 1
+    case UMinus(r)     => 1 + size(r)
+    case Plus(l, r)    => 1 + size(l) + size(r)
+    case Minus(l, r)   => 1 + size(l) + size(r)
+    case Times(l, r)   => 1 + size(l) + size(r)
+    case Div(l, r)     => 1 + size(l) + size(r)
+    case Mod(l, r)     => 1 + size(l) + size(r)
+    case Assign(l, r)  => 1 + size(l) + size(r)
+    case Cond(g, t, e) => 1 + size(g) + size(t) + size(e)
+    case Loop(g, b)    => 1 + size(g) + size(b)
+    case Block(s*)     => 1 + s.map(size).sum
 
   def height(e: Expr): Int = e match
-    case Constant(c) => 1
-    case UMinus(r)   => 1 + height(r)
-    case Plus(l, r)  => 1 + math.max(height(l), height(r))  // 1 + Seq(l, r).map(height).max
-    case Minus(l, r) => 1 + math.max(height(l), height(r))
-    case Times(l, r) => 1 + math.max(height(l), height(r))
-    case Div(l, r)   => 1 + math.max(height(l), height(r))
-    case Mod(l, r)   => 1 + math.max(height(l), height(r))
+    case Constant(c)   => 1
+    case Variable(_)   => 1
+    case UMinus(r)     => 1 + height(r)
+    case Plus(l, r)    => 1 + math.max(height(l), height(r))
+    case Minus(l, r)   => 1 + math.max(height(l), height(r))
+    case Times(l, r)   => 1 + math.max(height(l), height(r))
+    case Div(l, r)     => 1 + math.max(height(l), height(r))
+    case Mod(l, r)     => 1 + math.max(height(l), height(r))
+    case Assign(l, r)  => 1 + math.max(height(l), height(r))
+    case Cond(g, t, e) => 1 + math.max(height(g), math.max(height(t), height(e)))
+    case Loop(g, b)    => 1 + math.max(height(g), height(b))
+    case Block(s*)     => 1 + s.map(height).maxOption.getOrElse(0)
 
-  import org.json4s.JsonAST.JValue
-  import org.json4s.JsonDSL.*
+  // --- 3. JSON CONVERTER (Phase 4) ---
   def toJson(e: Expr): JValue = e match
-    case Constant(c) => c
-    case UMinus(r)   => e.productPrefix -> toJson(r)
-    case p           => p.productPrefix -> (0 until p.productArity).map(i => toJson(p.productElement(i).asInstanceOf[Expr]))
+    case Constant(c)   => c
+    case Variable(v)   => "Variable" -> v
+    case UMinus(r)     => "UMinus" -> toJson(r)
+    case Plus(l, r)    => "Plus" -> Seq(toJson(l), toJson(r))
+    case Minus(l, r)   => "Minus" -> Seq(toJson(l), toJson(r))
+    case Times(l, r)   => "Times" -> Seq(toJson(l), toJson(r))
+    case Div(l, r)     => "Div" -> Seq(toJson(l), toJson(r))
+    case Mod(l, r)     => "Mod" -> Seq(toJson(l), toJson(r))
+    case Assign(l, r)  => "Assign" -> Seq(toJson(l), toJson(r))
+    case Loop(g, b)    => "Loop" -> Seq(toJson(g), toJson(b))
+    case Cond(g, t, el)=> "Cond" -> Seq(toJson(g), toJson(t), toJson(el))
+    case Block(s*)     => "Block" -> s.map(toJson)
+
+  // --- 4. THE UNPARSER (Phase 3) ---
+  def unparse(e: Expr, indent: Int = 0): String =
+    val in = "  " * indent // Generates the correct number of spaces
+    e match
+      case Constant(c) => c.toString
+      case Variable(v) => v
+      case UMinus(r)   => s"-${unparse(r, 0)}"
+      case Plus(l, r)  => s"(${unparse(l, 0)} + ${unparse(r, 0)})"
+      case Minus(l, r) => s"(${unparse(l, 0)} - ${unparse(r, 0)})"
+      case Times(l, r) => s"(${unparse(l, 0)} * ${unparse(r, 0)})"
+      case Div(l, r)   => s"(${unparse(l, 0)} / ${unparse(r, 0)})"
+      case Mod(l, r)   => s"(${unparse(l, 0)} % ${unparse(r, 0)})"
+
+      case Assign(l, r) => s"${in}${unparse(l, 0)} = ${unparse(r, 0)};"
+
+      case Block(stmts*) =>
+        val stmtsStr = stmts.map(s => unparse(s, indent + 1)).mkString("\n")
+        if (stmts.isEmpty) s"${in}{\n${in}}" else s"${in}{\n$stmtsStr\n${in}}"
+
+      case Loop(guard, body) =>
+        s"${in}while (${unparse(guard, 0)}) ${unparseBlockBody(body, indent)}"
+
+      case Cond(guard, thenB, elseB) =>
+        val thenStr = unparseBlockBody(thenB, indent)
+        val elseStr = elseB match
+          case Block() => "" // No else branch
+          case b       => s" else ${unparseBlockBody(b, indent)}"
+        s"${in}if (${unparse(guard, 0)}) $thenStr$elseStr"
+
+  // Helper function to format the curly braces exactly like the assignment requires
+  private def unparseBlockBody(e: Expr, indent: Int): String = e match
+    case Block(stmts*) =>
+      val stmtsStr = stmts.map(s => unparse(s, indent + 1)).mkString("\n")
+      if (stmts.isEmpty) s"{\n${"  " * indent}}"
+      else s"{\n$stmtsStr\n${"  " * indent}}"
+    case _ => 
+      s"{\n${unparse(e, indent + 1)}\n${"  " * indent}}"
 
 end behaviors
