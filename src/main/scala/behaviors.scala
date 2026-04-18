@@ -7,19 +7,54 @@ import org.json4s.JsonDSL.*
 
 object behaviors:
 
-  // --- 1. EVALUATION (Dummy cases added to prevent compiler warnings) ---
-  private def evaluateR(e: Expr): Int = e match
-    case Constant(c) => c
-    case UMinus(r)   => -evaluateR(r)
-    case Plus(l, r)  => evaluateR(l) + evaluateR(r)
-    case Minus(l, r) => evaluateR(l) - evaluateR(r)
-    case Times(l, r) => evaluateR(l) * evaluateR(r)
-    case Div(l, r)   => evaluateR(l) / evaluateR(r)
-    case Mod(l, r)   => evaluateR(l) % evaluateR(r)
-    // Project 3b will handle these:
-    case _ => throw new NotImplementedError("Evaluation not implemented for imperative constructs yet")
+  // --- STEP 1: The Domain of Semantic Values & Mutable Store ---
+  sealed trait Value
+  case class Num(value: Int) extends Value
 
-  def evaluate(e: Expr): Try[Int] = Try(evaluateR(e))
+  // This is the "memory" map where we will save variables (e.g., x -> Num(3))
+  val memory = scala.collection.mutable.Map[String, Num]()
+
+  // --- 1. EVALUATION (Fully Functional Interpreter) ---
+  private def evaluateR(e: Expr): Num = e match
+    // Math operations updated to unwrap (.value) and wrap (Num(...))
+    case Constant(c) => Num(c)
+    case UMinus(r)   => Num(-evaluateR(r).value)
+    case Plus(l, r)  => Num(evaluateR(l).value + evaluateR(r).value)
+    case Minus(l, r) => Num(evaluateR(l).value - evaluateR(r).value)
+    case Times(l, r) => Num(evaluateR(l).value * evaluateR(r).value)
+    case Div(l, r)   => Num(evaluateR(l).value / evaluateR(r).value)
+    case Mod(l, r)   => Num(evaluateR(l).value % evaluateR(r).value)
+
+    // Variables and Assignments
+    case Variable(x) => 
+      memory.getOrElse(x, throw new NoSuchFieldException(x))
+      
+    case Assign(Variable(x), r) =>
+      val res = evaluateR(r)
+      memory(x) = res
+      Num(0) // Assignments evaluate to "void" (0)
+
+    // --- Phase 3b: Control Flow ---
+    // Blocks: Evaluate all statements, return the last result. Empty blocks return 0.
+    case Block(stmts*) =>
+      if stmts.isEmpty then Num(0)
+      else stmts.foldLeft(Num(0)) { (_, stmt) => evaluateR(stmt) }
+
+    // Loops: While guard is true (non-zero), run body. Returns void (0).
+    case Loop(guard, body) =>
+      while evaluateR(guard).value != 0 do
+        evaluateR(body)
+      Num(0)
+
+    // Conditionals: If guard is true (non-zero) run then, else run else.
+    case Cond(guard, thenB, elseB) =>
+      if evaluateR(guard).value != 0 then 
+        evaluateR(thenB)
+      else 
+        evaluateR(elseB)
+
+  // Top-level evaluator returning Try[Value]
+  def evaluate(e: Expr): Try[Value] = Try(evaluateR(e))
 
   // --- 2. AST METRICS ---
   def size(e: Expr): Int = e match

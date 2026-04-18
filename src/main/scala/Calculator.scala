@@ -25,9 +25,11 @@ object Calculator:
       println(pretty(render(toJson(expr))))
       println("It has size " + size(expr) + " and height " + height(expr))
       
-      // Note: evaluate might throw an error for un-implemented imperative constructs, 
-      // but that is expected based on the assignment instructions.
+      // --- Phase 3b: REPL Integration ---
+      // Prints the memory map before and after evaluating the expressions
+      println(s"Memory: ${behaviors.memory}")
       println("It evaluates to " + evaluate(expr))
+      println(s"Memory: ${behaviors.memory}")
 
   def main(args: Array[String]): Unit =
     if args.length > 0 then
